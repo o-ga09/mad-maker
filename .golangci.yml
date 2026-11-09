@@ -6,6 +6,7 @@ linters:
     - bodyclose
     - errorlint
     - gocritic
+    - gosec # SAST
     - misspell
     - revive
     - unconvert

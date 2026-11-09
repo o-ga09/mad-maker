@@ -1,0 +1,135 @@
+name: security
+
+# セキュリティ検査。サードパーティの Action はすべてコミット SHA で固定する。
+#   secret-scan       TruffleHog でシークレットの混入を検出する（PR と main への push）
+#   govulncheck       Go の依存とコードが既知の脆弱性に到達するかを検査する
+#   dependency-review PR で追加・更新される依存の脆弱性とライセンスを検査する
+#   codeql            CodeQL による SAST（Go と GitHub Actions のワークフロー）
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # 毎週月曜 03:17 UTC（12:17 JST）。新しく公開された脆弱性を拾うため
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # PR では base〜head、push では push されたコミット、定期実行ではリポジトリ全体を走査する
+      - uses: trufflesecurity/trufflehog@ea68ca03c865c5f324e86e849ced20ed3cf9dbbb # v3.99.8
+        with:
+          extra_args: --results=verified,unknown
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Detect Go module
+        id: detect
+        run: |
+          if [[ -f go.mod ]]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::go.mod が無いため govulncheck をスキップします"
+          fi
+
+      - name: Install Ebitengine dependencies
+        if: steps.detect.outputs.go == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libgl1-mesa-dev libxcursor-dev libxi-dev \
+            libxinerama-dev libxrandr-dev libxxf86vm-dev
+
+      - uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
+        if: steps.detect.outputs.go == 'true'
+        with:
+          go-version-file: go.mod
+          go-package: ./...
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+
+  codeql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, go]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Go のソースがまだ無い間は、Go の解析をスキップする
+      - name: Detect Go module
+        id: detect
+        env:
+          LANGUAGE: ${{ matrix.language }}
+        run: |
+          if [[ "$LANGUAGE" != "go" || -f go.mod ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::go.mod が無いため Go の CodeQL 解析をスキップします"
+          fi
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.language == 'go' && steps.detect.outputs.run == 'true'
+        with:
+          go-version-file: go.mod
+
+      - name: Install Ebitengine dependencies
+        if: matrix.language == 'go' && steps.detect.outputs.run == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libgl1-mesa-dev libxcursor-dev libxi-dev \
+            libxinerama-dev libxrandr-dev libxxf86vm-dev
+
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        if: steps.detect.outputs.run == 'true'
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.language == 'go' && 'autobuild' || 'none' }}
+          queries: security-extended
+
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        if: steps.detect.outputs.run == 'true'
+        with:
+          category: /language:${{ matrix.language }}

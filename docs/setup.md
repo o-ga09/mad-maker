@@ -80,7 +80,27 @@ scripts/setup-labels.sh o-ga09/mad-maker
 
 Secrets が未設定の間、ワークフローは Routine を起動せずに警告だけ出す。
 
-### 7. 動作確認
+### 7. セキュリティ機能（Settings → Advanced Security）
+
+公開リポジトリなので、次の機能は GitHub Free でも無料で使える。
+
+```sh
+gh api -X PATCH repos/o-ga09/mad-maker --input - <<'JSON'
+{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}
+JSON
+gh api -X PUT repos/o-ga09/mad-maker/vulnerability-alerts
+```
+
+| 機能 | 役割 |
+| --- | --- |
+| Secret scanning + push protection | シークレットを含む push を GitHub 側で拒否する（CI の TruffleHog より前の防御） |
+| Dependabot alerts | 依存の脆弱性を通知する |
+| Dependabot version updates（`.github/dependabot.yml`） | コミット SHA で固定した Actions と Go の依存を週 1 回更新する PR を作る |
+| Code scanning（`security.yml` の `codeql`） | CodeQL の結果を Security タブに表示する |
+
+**Action の固定ルール**：ワークフローの `uses:` はすべてコミット SHA で固定し、行末にバージョンをコメントで書く（例: `actions/checkout@<40桁のSHA> # v7.0.1`）。Dependabot はこの形式のまま SHA とコメントを更新する。Dependabot の PR は `.github/` や `go.mod` を変更するので、人間が確認してマージする。
+
+### 8. 動作確認
 
 1. `.github/ISSUE_TEMPLATE/agent-task.md` のテンプレートで、小さな Issue を 1 件作り、`agent:ready` を付ける。
 2. 実装 Routine を Web 画面の **Run now** で実行する。
