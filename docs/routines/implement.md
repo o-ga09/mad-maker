@@ -29,7 +29,8 @@
    どうしても通せない場合は、状況を Issue にコメントし、agent:working を外して needs-human を付けて終了する。
 7. Conventional Commits でコミットして push し、PR を作成する:
    gh pr create --base main --label "agent:review" --title "<type>: <要約>" --body "<本文>"
-   本文には Closes #<番号>、変更内容、テスト方法、マーカー <!-- agent:implement --> を書く。
+   本文は .github/PULL_REQUEST_TEMPLATE.md の各節を埋めて書き（Closes #<番号>、変更内容、テスト方法、
+   チェックリスト、人間の承認が必要な操作）、末尾にマーカー <!-- agent:implement --> を入れる。
    CLAUDE.md の「人間の承認が必要な操作」に当たる変更を含む場合は、agent:review の代わりに needs-human を付ける。
 8. Issue から agent:working と agent:ready を外す。
 
