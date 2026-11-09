@@ -1,0 +1,75 @@
+name: conflict-check
+
+# main への push 時に、全オープン PR の mergeable_state を確認する。
+# dirty（コンフリクト）なら conflict ラベルを付け、修正 Routine を API で起動する。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: conflict-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check open pull requests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ROUTINE_URL: ${{ secrets.ROUTINE_FIX_URL }}
+          ROUTINE_TOKEN: ${{ secrets.ROUTINE_FIX_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # GitHub は mergeable_state をリクエスト時に計算するため、unknown の間は少し待って取り直す
+          mergeable_state() {
+            local n="$1" state
+            for _ in 1 2 3 4 5 6; do
+              state="$(gh api "repos/$REPO/pulls/$n" --jq '.mergeable_state')"
+              if [[ "$state" != "unknown" ]]; then
+                echo "$state"
+                return
+              fi
+              sleep 10
+            done
+            echo "unknown"
+          }
+
+          gh pr list --repo "$REPO" --state open --base main --limit 100 \
+            --json number,isCrossRepository,labels \
+            --jq '.[] | select(.isCrossRepository | not) | [.number, ([.labels[].name] | join(","))] | @tsv' |
+          while IFS=$'\t' read -r number labels; do
+            state="$(mergeable_state "$number")"
+            echo "PR #$number: mergeable_state=$state labels=[$labels]"
+
+            if [[ "$state" != "dirty" ]]; then
+              # コンフリクトが解消されていればラベルを外す
+              if [[ ",$labels," == *",conflict,"* ]]; then
+                gh pr edit "$number" --repo "$REPO" --remove-label conflict
+              fi
+              continue
+            fi
+
+            # 人間待ち・作業中・通知済みのものには触らない（ループ防止・排他）
+            if [[ ",$labels," == *",needs-human,"* || ",$labels," == *",agent:working,"* || ",$labels," == *",conflict,"* ]]; then
+              echo "  skip: needs-human / agent:working / conflict のいずれかが付いています"
+              continue
+            fi
+
+            gh pr edit "$number" --repo "$REPO" --add-label conflict
+            scripts/fire-routine.sh "repository: $REPO
+          pull_request: #$number
+          reason: conflict
+          PR #$number が main とコンフリクトしています。main へ rebase して解消してください。"
+          done

@@ -1,0 +1,34 @@
+name: dispatch-fix
+
+# レビュー Routine が PR に agent:changes を付けたら、修正 Routine を API で起動する。
+# pull_request_target は base ブランチのコードで動き、Secrets を使える。PR のコードはチェックアウトしない。
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.label.name == 'agent:changes' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !contains(github.event.pull_request.labels.*.name, 'needs-human') &&
+      !contains(github.event.pull_request.labels.*.name, 'agent:working')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fire fix routine
+        env:
+          ROUTINE_URL: ${{ secrets.ROUTINE_FIX_URL }}
+          ROUTINE_TOKEN: ${{ secrets.ROUTINE_FIX_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          scripts/fire-routine.sh "repository: $REPO
+          pull_request: #$PR_NUMBER
+          reason: changes-requested
+          PR #$PR_NUMBER にレビューの修正依頼が出ています。指摘に対応してください。"
