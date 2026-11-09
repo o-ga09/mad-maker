@@ -16,11 +16,21 @@
 | --- | --- |
 | ビルド | `go build ./...` |
 | テスト | `go test -race ./...`（Linux CI では `xvfb-run` 経由） |
-| lint | `golangci-lint run` |
+| lint（gosec による SAST を含む） | `golangci-lint run` |
+| 脆弱性チェック | `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` |
 | フォーマット | `gofmt -w .`（golangci-lint の formatter でも検査される） |
 | ラベル作成 | `scripts/setup-labels.sh` |
 
 PR を出す前に、ビルド・テスト・lint をローカルで実行し、すべて通っていること。
+
+CI では次のセキュリティ検査も走る（`.github/workflows/security.yml`）。指摘が出たら、抑止（`//nolint`、`#nosec`）せずに原因を直す。抑止が必要な場合は理由をコメントに書き、`needs-human` を付ける。
+
+| 検査 | 内容 |
+| --- | --- |
+| `secret-scan` | TruffleHog でシークレットの混入を検出 |
+| `govulncheck` | 依存とコードが既知の脆弱性に到達するかを検査 |
+| `dependency-review` | PR で追加・更新される依存の脆弱性を検査 |
+| `codeql` | CodeQL による SAST（Go と GitHub Actions のワークフロー） |
 
 ## コーディング規約
 
