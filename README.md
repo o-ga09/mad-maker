@@ -4,3 +4,7 @@
 
 - MVP: Go + Ebitengine（または guigui）のデスクトップアプリ
 - 次段階: WebAssembly でブラウザ版
+
+## ライセンス
+
+All Rights Reserved。ソースコードは閲覧のみ可能で、利用・複製・改変・再配布は許可していません。詳細は [LICENSE](LICENSE) を参照。
