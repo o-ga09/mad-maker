@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ruleset の必須チェックに指定するジョブ。go.mod がまだ無い間は検査をスキップして成功させる。
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect Go module
+        id: detect
+        run: |
+          if [[ -f go.mod ]]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::go.mod が無いため Go の検査をスキップします"
+          fi
+
+      - uses: actions/setup-go@v5
+        if: steps.detect.outputs.go == 'true'
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Ebitengine のビルド・テストに必要な X11 / OpenGL / ALSA の開発パッケージ
+      - name: Install Ebitengine dependencies
+        if: steps.detect.outputs.go == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libgl1-mesa-dev libxcursor-dev libxi-dev \
+            libxinerama-dev libxrandr-dev libxxf86vm-dev xvfb
+
+      - name: Build
+        if: steps.detect.outputs.go == 'true'
+        run: go build ./...
+
+      - name: Lint
+        if: steps.detect.outputs.go == 'true'
+        uses: golangci/golangci-lint-action@v8
+        with:
+          # go.mod の Go バージョンより古い Go でビルドされた golangci-lint は動かないため、最新版を使う
+          version: latest
+
+      - name: Test
+        if: steps.detect.outputs.go == 'true'
+        run: xvfb-run --auto-servernum go test -race ./...
