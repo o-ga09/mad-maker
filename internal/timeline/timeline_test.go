@@ -1,6 +1,7 @@
 package timeline
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -53,6 +54,13 @@ func TestNew(t *testing.T) {
 				{Start: 0, End: 500 * ms, ImageIndex: 0, Beat: 0},
 			},
 		},
+		{
+			name: "huge switch interval with offset does not overflow the end time",
+			in:   Params{BPM: 60, Offset: time.Second, Duration: 2 * time.Second, ImageCount: 1, BeatsPerSwitch: math.MaxInt64 / int(time.Second)},
+			want: []Segment{
+				{Start: time.Second, End: 2 * time.Second, ImageIndex: 0, Beat: 0},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -90,6 +98,8 @@ func TestNewInvalid(t *testing.T) {
 		{"offset negative", func(p *Params) { p.Offset = -ms }},
 		{"offset equals duration", func(p *Params) { p.Offset = p.Duration }},
 		{"offset beyond duration", func(p *Params) { p.Offset = p.Duration + ms }},
+		{"bpm so large the beat interval truncates to zero", func(p *Params) { p.BPM = 1e12 }},
+		{"switch interval overflows duration", func(p *Params) { p.BeatsPerSwitch = math.MaxInt }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

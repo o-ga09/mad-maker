@@ -3,6 +3,7 @@ package timeline
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -61,19 +62,28 @@ func New(p Params) (*Timeline, error) {
 		return nil, fmt.Errorf("invalid offset %v: must be less than duration %v", p.Offset, p.Duration)
 	}
 
+	// Guard against a zero interval (extreme BPM truncates to 0) and against
+	// overflow, either of which would stop the loop below from advancing.
+	if interval <= 0 || time.Duration(p.BeatsPerSwitch) > math.MaxInt64/interval {
+		return nil, fmt.Errorf("invalid tempo/switch interval: bpm %v with %d beats per switch gives an unusable step", p.BPM, p.BeatsPerSwitch)
+	}
 	step := time.Duration(p.BeatsPerSwitch) * interval
 	var segments []Segment
-	for k := 0; ; k++ {
-		start := p.Offset + time.Duration(k)*step
-		if start >= p.Duration {
-			break
-		}
-		segments = append(segments, Segment{
+	for k, start := 0, p.Offset; start < p.Duration; k++ {
+		segment := Segment{
 			Start:      start,
-			End:        min(start+step, p.Duration),
+			End:        p.Duration,
 			ImageIndex: k % p.ImageCount,
 			Beat:       k * p.BeatsPerSwitch,
-		})
+		}
+		// Compare against the remaining time instead of adding, so start+step cannot overflow.
+		if step >= p.Duration-start {
+			segments = append(segments, segment)
+			break
+		}
+		start += step
+		segment.End = start
+		segments = append(segments, segment)
 	}
 	return &Timeline{segments: segments, offset: p.Offset, end: p.Duration}, nil
 }
